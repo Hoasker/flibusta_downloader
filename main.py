@@ -58,7 +58,7 @@ async def search_and_download(book_name: str) -> None:
         search_query = quote(book_name)
         url = f"{SEARCH_URL}{search_query}"
         html = await fetch(session, url)
-        soup = BeautifulSoup(html, 'html.parser')
+        soup = BeautifulSoup(html, 'lxml')
 
         # Find all book links on the search page
         book_links = soup.find_all('a', href=BOOK_PATTERN)
