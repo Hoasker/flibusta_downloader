@@ -5,12 +5,14 @@ from bs4 import BeautifulSoup
 import re
 from urllib.parse import quote
 
+
 BASE_URL = "http://flibusta.site"
 SEARCH_URL = f"{BASE_URL}/booksearch?ask="
 BOOK_PATTERN = re.compile(r'/b/\d+')
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 }
+
 
 async def fetch(session: aiohttp.ClientSession, url: str) -> str:
     """
@@ -23,8 +25,16 @@ async def fetch(session: aiohttp.ClientSession, url: str) -> str:
     Returns:
         str: The HTML content of the fetched page.
     """
-    async with session.get(url, headers=HEADERS) as response:
-        return await response.text()
+    try:
+        async with session.get(url, headers=HEADERS, timeout=aiohttp.ClientTimeout(total=30)) as response:
+            response.raise_for_status()  # Raises an error for bad status codes
+            return await response.text()
+    except asyncio.TimeoutError:
+        print(f"Timeout error occurred while fetching: {url}")
+    except aiohttp.ClientError as e:
+        print(f"Client error occurred: {e}")
+    return ""
+
 
 async def download_file(session: aiohttp.ClientSession, url: str, filename: str) -> None:
     """
@@ -43,6 +53,7 @@ async def download_file(session: aiohttp.ClientSession, url: str, filename: str)
         else:
             print(f"Failed to download book: {filename}. Status: {response.status}")
 
+
 async def search_and_download(book_name: str) -> None:
     """
     Searches for books by name and downloads their PDF versions if available.
@@ -56,7 +67,10 @@ async def search_and_download(book_name: str) -> None:
         while True:
             url = f"{SEARCH_URL}{search_query}&page={page_number}"
             html = await fetch(session, url)
-            soup = BeautifulSoup(html, 'html.parser')
+            if not html:  # Check if html is empty due to an error
+                break
+
+            soup = BeautifulSoup(html, 'lxml')
 
             # Find all book links on the search page
             book_links = soup.find_all('a', href=BOOK_PATTERN)
@@ -72,7 +86,10 @@ async def search_and_download(book_name: str) -> None:
 
                 # Get the book page and search for PDF link
                 book_page = await fetch(session, book_url)
-                book_soup = BeautifulSoup(book_page, 'html.parser')
+                if not book_page:  # Check if book_page is empty due to an error
+                    continue
+
+                book_soup = BeautifulSoup(book_page, 'lxml')
 
                 pdf_link = book_soup.find('a', string=re.compile("скачать pdf", re.I))
                 if pdf_link:
@@ -88,12 +105,16 @@ async def search_and_download(book_name: str) -> None:
 
             page_number += 1
 
+            await asyncio.sleep(1)
+
+
 async def main() -> None:
     """
     The main function that prompts the user for a book name and initiates the search and download process.
     """
     book_name = input("Enter the name of the book: ")
     await search_and_download(book_name)
+
 
 if __name__ == '__main__':
     asyncio.run(main())
