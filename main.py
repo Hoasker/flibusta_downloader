@@ -5,14 +5,12 @@ from bs4 import BeautifulSoup
 import re
 from urllib.parse import quote
 
-
 BASE_URL = "http://flibusta.site"
 SEARCH_URL = f"{BASE_URL}/booksearch?ask="
 BOOK_PATTERN = re.compile(r'/b/\d+')
 HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
 }
-
 
 async def fetch(session: aiohttp.ClientSession, url: str) -> str:
     """
@@ -27,7 +25,6 @@ async def fetch(session: aiohttp.ClientSession, url: str) -> str:
     """
     async with session.get(url, headers=HEADERS) as response:
         return await response.text()
-
 
 async def download_file(session: aiohttp.ClientSession, url: str, filename: str) -> None:
     """
@@ -46,7 +43,6 @@ async def download_file(session: aiohttp.ClientSession, url: str, filename: str)
         else:
             print(f"Failed to download book: {filename}. Status: {response.status}")
 
-
 async def search_and_download(book_name: str) -> None:
     """
     Searches for books by name and downloads their PDF versions if available.
@@ -56,38 +52,41 @@ async def search_and_download(book_name: str) -> None:
     """
     async with aiohttp.ClientSession() as session:
         search_query = quote(book_name)
-        url = f"{SEARCH_URL}{search_query}"
-        html = await fetch(session, url)
-        soup = BeautifulSoup(html, 'lxml')
+        page_number = 1
+        while True:
+            url = f"{SEARCH_URL}{search_query}&page={page_number}"
+            html = await fetch(session, url)
+            soup = BeautifulSoup(html, 'html.parser')
 
-        # Find all book links on the search page
-        book_links = soup.find_all('a', href=BOOK_PATTERN)
-        if not book_links:
-            print("No books found.")
-            return
+            # Find all book links on the search page
+            book_links = soup.find_all('a', href=BOOK_PATTERN)
+            if not book_links:
+                print("No more books found.")
+                break  # Exit if no books are found
 
-        # Process each book and try to find the PDF download link
-        tasks = []
-        for a in book_links:
-            book_title = a.get_text(strip=True)
-            book_url = f"{BASE_URL}{a['href']}"
+            # Process each book and try to find the PDF download link
+            tasks = []
+            for a in book_links:
+                book_title = a.get_text(strip=True)
+                book_url = f"{BASE_URL}{a['href']}"
 
-            # Get the book page and search for PDF link
-            book_page = await fetch(session, book_url)
-            book_soup = BeautifulSoup(book_page, 'html.parser')
+                # Get the book page and search for PDF link
+                book_page = await fetch(session, book_url)
+                book_soup = BeautifulSoup(book_page, 'html.parser')
 
-            pdf_link = book_soup.find('a', string=re.compile("скачать pdf", re.I))
-            if pdf_link:
-                pdf_url = f"{BASE_URL}{pdf_link['href']}"
-                filename = f"{book_title}.pdf"
-                tasks.append(download_file(session, pdf_url, filename))
+                pdf_link = book_soup.find('a', string=re.compile("скачать pdf", re.I))
+                if pdf_link:
+                    pdf_url = f"{BASE_URL}{pdf_link['href']}"
+                    filename = f"{book_title}.pdf"
+                    tasks.append(download_file(session, pdf_url, filename))
 
-        # Execute the download tasks for all found books
-        if tasks:
-            await asyncio.gather(*tasks)
-        else:
-            print("No books in PDF format found.")
+            # Execute the download tasks for all found books
+            if tasks:
+                await asyncio.gather(*tasks)
+            else:
+                print("No books in PDF format found.")
 
+            page_number += 1
 
 async def main() -> None:
     """
@@ -95,7 +94,6 @@ async def main() -> None:
     """
     book_name = input("Enter the name of the book: ")
     await search_and_download(book_name)
-
 
 if __name__ == '__main__':
     asyncio.run(main())
